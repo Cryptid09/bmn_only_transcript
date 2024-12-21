@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { createFFmpeg } = require('fluent-ffmpeg');
+const ffmpeg = require('fluent-ffmpeg');
 const { createClient } = require('@deepgram/sdk');
 const fs = require('fs').promises;
 const path = require('path');
@@ -116,7 +116,6 @@ class VideoService {
 
   async mergeSegments(fileListPath, outputPath) {
     return new Promise((resolve, reject) => {
-      const ffmpeg = createFFmpeg();
       ffmpeg()
         .input(fileListPath)
         .inputOptions(['-f concat', '-safe 0'])
@@ -130,7 +129,6 @@ class VideoService {
 
   async convertToMp3(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
-      const ffmpeg = createFFmpeg();
       ffmpeg()
         .input(inputPath)
         .toFormat('mp3')
