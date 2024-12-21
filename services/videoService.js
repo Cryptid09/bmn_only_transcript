@@ -132,20 +132,38 @@ class VideoService {
       ffmpeg()
         .input(inputPath)
         .toFormat('mp3')
-        .audioChannels(1)  // Convert to mono
-        .audioFrequency(16000)  // 16kHz sample rate
-        .audioBitrate('64k')    // 64kbps bitrate
+        .audioChannels(1)
+        .audioFrequency(16000)
         .audioCodec('libmp3lame')
+        .audioBitrate('128k')
+        .outputOptions([
+          '-write_xing 0',  // Disable Xing header which can cause issues
+          '-id3v2_version 0'  // Disable ID3 tags
+        ])
         .output(outputPath)
-        .on('start', () => console.log('Starting MP3 conversion...'))
+        .on('start', () => {
+          console.log('Starting MP3 conversion...');
+          console.log(`Input file: ${inputPath}`);
+          console.log(`Output file: ${outputPath}`);
+        })
         .on('progress', (progress) => {
           if (progress.percent) {
             console.log(`Processing: ${Math.floor(progress.percent)}% done`);
           }
         })
-        .on('end', () => {
-          console.log('MP3 conversion completed successfully');
-          resolve();
+        .on('end', async () => {
+          try {
+            // Verify the output file exists and has content
+            const stats = await fs.stat(outputPath);
+            if (stats.size === 0) {
+              reject(new Error('Generated MP3 file is empty'));
+              return;
+            }
+            console.log(`MP3 conversion completed successfully (size: ${stats.size} bytes)`);
+            resolve();
+          } catch (err) {
+            reject(new Error(`Failed to verify MP3 file: ${err.message}`));
+          }
         })
         .on('error', (err) => {
           console.error('Error during MP3 conversion:', err);
@@ -157,22 +175,58 @@ class VideoService {
 
   async generateTranscript(audioPath) {
     try {
-      const audioBuffer = await fs.readFile(audioPath);
+      // Verify the audio file exists and has content
+      const stats = await fs.stat(audioPath);
+      if (stats.size === 0) {
+        throw new Error('Audio file is empty');
+      }
+
+      // Convert to WAV as a more reliable format for speech recognition
+      const wavPath = audioPath.replace('.mp3', '.wav');
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(audioPath)
+          .toFormat('wav')
+          .audioChannels(1)
+          .audioFrequency(16000)
+          .audioCodec('pcm_s16le')
+          .on('error', (err) => {
+            console.error('Error converting to WAV:', err);
+            reject(err);
+          })
+          .on('end', () => {
+            console.log('Successfully converted to WAV');
+            resolve();
+          })
+          .save(wavPath);
+      });
+
+      // Read the WAV file
+      const audioBuffer = await fs.readFile(wavPath);
+      
+      console.log('Sending audio file to Deepgram (size:', audioBuffer.length, 'bytes)');
       
       const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
         {
           buffer: audioBuffer,
-          mimetype: 'audio/mp3'
+          mimetype: 'audio/wav'
         },
         {
           smart_format: true,
           model: 'nova-2',
-          language: 'en-US'
+          language: 'hi-Latn'
         }
       );
 
       if (error) {
         throw error;
+      }
+
+      // Clean up the temporary WAV file
+      try {
+        await fs.unlink(wavPath);
+      } catch (err) {
+        console.error('Error cleaning up WAV file:', err);
       }
 
       return result.results.channels[0].alternatives[0].transcript;
