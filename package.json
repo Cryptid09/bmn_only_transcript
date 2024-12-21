@@ -1,0 +1,26 @@
+{
+  "name": "video-transcription-app",
+  "version": "1.0.0",
+  "description": "Video transcription application using Express.js and Deepgram",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "m3u8-parser": "^6.2.0",
+    "morgan": "^1.10.0",
+    "p-limit": "^3.1.0",
+    "rimraf": "^5.0.5",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
