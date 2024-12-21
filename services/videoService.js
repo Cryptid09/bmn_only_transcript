@@ -132,9 +132,25 @@ class VideoService {
       ffmpeg()
         .input(inputPath)
         .toFormat('mp3')
+        .audioChannels(1)  // Convert to mono
+        .audioFrequency(16000)  // 16kHz sample rate
+        .audioBitrate('64k')    // 64kbps bitrate
+        .audioCodec('libmp3lame')
         .output(outputPath)
-        .on('end', resolve)
-        .on('error', reject)
+        .on('start', () => console.log('Starting MP3 conversion...'))
+        .on('progress', (progress) => {
+          if (progress.percent) {
+            console.log(`Processing: ${Math.floor(progress.percent)}% done`);
+          }
+        })
+        .on('end', () => {
+          console.log('MP3 conversion completed successfully');
+          resolve();
+        })
+        .on('error', (err) => {
+          console.error('Error during MP3 conversion:', err);
+          reject(err);
+        })
         .run();
     });
   }
