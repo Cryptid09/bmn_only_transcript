@@ -16,29 +16,52 @@ class VideoService {
       await fs.mkdir(outputDir, { recursive: true });
       console.log(`Created temporary directory: ${outputDir}`);
 
-      const m3u8Url = `https://d1d34p8vz63oiq.cloudfront.net/eb09e648-2c19-4305-9d27-49a4a42f5fc7/${sbatId}/master.m3u8`;
-      console.log('Fetching M3U8 playlist:', m3u8Url);
+      // Fetch m3u8 URLs from Scaler API
+      console.log('Fetching m3u8 URLs from Metabase API...');
+      const apiResponse = await axios.get(
+        `https://metabase.interviewbit.com/api/embed/card/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyZXNvdXJjZSI6eyJxdWVzdGlvbiI6MjA2MDN9LCJwYXJhbXMiOnt9LCJleHAiOjE3NDE3MDk1NTN9.Z6ob2UjkUXJyfNe8wFc2i2qnfevKkIa4Y63Awmrde3g/query`,
+        {
+          params: { sbat_id: sbatId }
+        }
+      );
 
-      const response = await axios.get(m3u8Url);
-      const parser = new m3u8Parser.Parser();
-      parser.push(response.data);
-      parser.end();
+      const m3u8Urls = apiResponse.data.data.rows.map(row => row[0]);
+      console.log(`Found ${m3u8Urls.length} m3u8 URLs for sbatId: ${sbatId}`);
 
-      const segments = parser.manifest.segments;
-      console.log(`Found ${segments.length} segments in playlist`);
+      if (m3u8Urls.length === 0) {
+        throw new Error('No m3u8 URLs found for the given sbatId');
+      }
 
       const allSegmentPaths = [];
       const limit = pLimit(5); // Limit concurrent downloads
-      const downloadPromises = [];
 
-      for (let i = 0; i < segments.length; i++) {
-        const segment = segments[i];
-        const segmentUrl = new URL(segment.uri, m3u8Url).toString();
-        const outputPath = path.join(outputDir, `segment_${i}.ts`);
+      // Process each m3u8 URL
+      for (let i = 0; i < m3u8Urls.length; i++) {
+        const m3u8Url = m3u8Urls[i];
+        console.log(`Processing m3u8 ${i + 1}/${m3u8Urls.length}: ${m3u8Url}`);
 
-        downloadPromises.push(
-          limit(async () => {
+        // Fetch and parse m3u8 playlist
+        const response = await axios.get(m3u8Url);
+        const parser = new m3u8Parser.Parser();
+        parser.push(response.data);
+        parser.end();
+
+        const segments = parser.manifest.segments;
+        console.log(`Found ${segments.length} segments in playlist ${i + 1}`);
+
+        if (segments.length === 0) {
+          console.warn(`No segments found in m3u8 ${i + 1}. Skipping.`);
+          continue;
+        }
+
+        // Download segments in parallel
+        const downloadPromises = segments.map((segment, j) => {
+          return limit(async () => {
             try {
+              const segmentUrl = new URL(segment.uri, m3u8Url).toString();
+              const outputPath = path.join(outputDir, `segment_${i}_${j}.ts`);
+              
+              console.log(`Downloading segment ${j + 1}/${segments.length} from m3u8 ${i + 1}`);
               const segmentResponse = await axios({
                 method: 'get',
                 url: segmentUrl,
@@ -46,19 +69,18 @@ class VideoService {
               });
 
               await fs.writeFile(outputPath, segmentResponse.data);
-              console.log(`Downloading segment ${i + 1}/${segments.length} from m3u8`);
-              return { index: i, path: outputPath };
+              return { index: j, path: outputPath };
             } catch (error) {
-              console.error(`Error downloading segment ${i + 1}:`, error.message);
+              console.error(`Error downloading segment ${j + 1} from m3u8 ${i + 1}:`, error.message);
               throw error;
             }
-          })
-        );
-      }
+          });
+        });
 
-      const downloadedSegments = await Promise.all(downloadPromises);
-      downloadedSegments.sort((a, b) => a.index - b.index);
-      allSegmentPaths.push(...downloadedSegments.map(segment => segment.path));
+        const downloadedSegments = await Promise.all(downloadPromises);
+        downloadedSegments.sort((a, b) => a.index - b.index);
+        allSegmentPaths.push(...downloadedSegments.map(segment => segment.path));
+      }
 
       if (allSegmentPaths.length === 0) {
         throw new Error('No segments were downloaded successfully');
@@ -81,13 +103,10 @@ class VideoService {
       await this.convertToMp3(mergedFile, audioPath);
       console.log('Converted to MP3 successfully');
 
-      // Return the paths of the generated files
-      const result = {
+      return {
         mergedVideo: mergedFile,
         audioFile: audioPath
       };
-
-      return result;
     } catch (error) {
       console.error('Error processing video:', error);
       try {
